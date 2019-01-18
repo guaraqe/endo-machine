@@ -8,8 +8,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 module EndoMachine
-  ( HasWhole (..)
-  , Whole (..)
+  ( IsWhole (..)
   , HasContext
   , endo
   , endoR
@@ -23,41 +22,50 @@ import Data.Functor.Compose
 
 --------------------------------------------------------------------------------
 
-class HasWhole a where
+class IsWhole a where
   type Tag a -- for capability
-  type Parameter a -- parameters that are common to elements in container
-  type Container a -- monomorphic container composed of `a`
-
-data Whole a = Whole
-  { parameter :: !(Parameter a)
-  , container :: !(Container a)
-  }
+  type Parameters a -- parameters that are common to elements in container
+  type Subparts a -- monomorphic container composed of `a`
+  getParameters :: a -> Parameters a
+  getSubparts :: a -> Subparts a
+  mkWhole :: Parameters a -> Subparts a -> a
 
 --------------------------------------------------------------------------------
 
 -- | Apply an endomorphism on @Whole a@ by using a parametric endomorphism on
--- @Container a@.
-endo :: (Parameter a -> Container a -> Container a) -> Whole a -> Whole a
-endo f (Whole p c) = Whole p (f p c)
+-- @Subparts a@.
+endo :: IsWhole a => (Parameters a -> Subparts a -> Subparts a) -> a -> a
+endo f w =
+  let
+    p = getParameters w
+    s = getSubparts w
+  in
+    mkWhole p (f p s)
 
 --------------------------------------------------------------------------------
 
-type HasContext a m = HasReader (Tag a) (Parameter a) m
+type HasContext a m = HasReader (Tag a) (Parameters a) m
 
 newtype Function a b = Function { runFunction :: a -> b }
   deriving newtype (Functor, Applicative, Monad)
   deriving (HasReader tag a) via MonadReader ((->) a)
 
--- | Apply an endomorphism on @Whole a@ by using an endomorphism on @Container a@.
--- which has @Parameter a@ in the context.
+-- | Apply an endomorphism on @Whole a@ by using an endomorphism on @Subparts a@.
+-- which has @Parameters a@ in the context.
 endoR ::
-  (forall m. HasContext a m => Container a -> m (Container a)) ->
-  Whole a -> Whole a
-endoR f (Whole p c) = Whole p (runFunction (f c) p)
+  IsWhole a =>
+  (forall m. HasContext a m => Subparts a -> m (Subparts a)) ->
+  a -> a
+endoR f w =
+  let
+    p = getParameters w
+    s = getSubparts w
+  in
+    mkWhole p (runFunction (f s) p)
 
 --------------------------------------------------------------------------------
 
-type CanChange a m = HasState (Tag a) (Container a) m
+type CanChange a m = HasState (Tag a) (Subparts a) m
 
 newtype RState r s a = RState { runRState :: ReaderT r (State s) a }
   deriving newtype (Functor, Applicative, Monad)
@@ -65,8 +73,14 @@ newtype RState r s a = RState { runRState :: ReaderT r (State s) a }
   deriving (HasState tag s) via MonadState (ReaderT r (State s))
 
 -- | Apply an endomorphism on @Whole a@ by using a stateful operation on
--- @Container a@ which has @Parameter a@ in the context.
+-- @Subparts a@ which has @Parameters a@ in the context.
 endoS ::
+  IsWhole a =>
   (forall m. (HasContext a m, CanChange a m) => m ()) ->
-  Whole a -> Whole a
-endoS f (Whole p c) = Whole p (execState (runReaderT (runRState f) p) c)
+  a -> a
+endoS f w =
+  let
+    p = getParameters w
+    s = getSubparts w
+  in
+    mkWhole p (execState (runReaderT (runRState f) p) s)
