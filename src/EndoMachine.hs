@@ -31,8 +31,8 @@ class HasWhole a where
   type Container a -- monomorphic container composed of `a`
 
 data Whole a = Whole
-  { _parameter :: !(Parameter a)
-  , _container :: !(Container a)
+  { parameter :: !(Parameter a)
+  , container :: !(Container a)
   }
 
 --------------------------------------------------------------------------------
@@ -46,7 +46,7 @@ endo f (Whole p c) = Whole p (f p c)
 
 type HasContext a m = HasReader (Tag a) (Parameter a) m
 
-newtype Function a b = ParFunction { runFunction :: a -> b }
+newtype Function a b = Function { runFunction :: a -> b }
   deriving newtype (Functor, Applicative, Monad)
   deriving (HasReader tag a) via MonadReader ((->) a)
 
