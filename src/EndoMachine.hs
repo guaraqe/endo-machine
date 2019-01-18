@@ -2,9 +2,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -62,7 +60,7 @@ endoR f (Whole p c) = Whole p (runFunction (f c) p)
 type CanChange a m = HasState (Tag a) (Container a) m
 
 newtype RState r s a = RState { runRState :: ReaderT r (State s) a }
-  deriving (Functor, Applicative, Monad)
+  deriving newtype (Functor, Applicative, Monad)
   deriving (HasReader tag r) via MonadReader (ReaderT r (State s))
   deriving (HasState tag s) via MonadState (ReaderT r (State s))
 
