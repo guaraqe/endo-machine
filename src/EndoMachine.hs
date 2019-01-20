@@ -5,82 +5,102 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
 module EndoMachine
-  ( IsWhole (..)
-  , HasContext
+  ( Whole (..)
+  , Reads
+  , Changes
   , endo
+  , endoM
   , endoR
+  , endoS
   ) where
 
-import Control.Monad.Trans.Reader
-import Control.Monad.Trans.State.Strict
 import Capability.Reader
 import Capability.State
-import Data.Functor.Compose
+import Control.Lens
+import Control.Monad.Trans.Reader
+import Control.Monad.Trans.State.Strict (State, execState)
 
 --------------------------------------------------------------------------------
 
-class IsWhole a where
-  type Tag a -- for capability
-  type Parameters a -- parameters that are common to elements in container
-  type Subparts a -- monomorphic container composed of `a`
-  getParameters :: a -> Parameters a
-  getSubparts :: a -> Subparts a
-  mkWhole :: Parameters a -> Subparts a -> a
+class Whole a where
+  type Parameters a
+  parameters :: Lens' a (Parameters a)
+  type Component a
+  components :: Traversal' a (Component a)
 
 --------------------------------------------------------------------------------
 
 -- | Apply an endomorphism on @Whole a@ by using a parametric endomorphism on
--- @Subparts a@.
-endo :: IsWhole a => (Parameters a -> Subparts a -> Subparts a) -> a -> a
-endo f w =
+-- @Component a@.
+endo ::
+  Whole a =>
+  (Parameters a -> Component a -> Component a) ->
+  a -> a
+endo f a =
   let
-    p = getParameters w
-    s = getSubparts w
+    p = view parameters a
   in
-    mkWhole p (f p s)
+    over components (f p) a
+
+endoM ::
+  (Whole a, Applicative m) =>
+  (Parameters a -> Component a -> m (Component a)) ->
+  a -> m a
+endoM f a =
+  let
+    p = view parameters a
+  in
+    components (f p) a
 
 --------------------------------------------------------------------------------
 
-type HasContext a m = HasReader (Tag a) (Parameters a) m
-
-newtype Function a b = Function { runFunction :: a -> b }
+newtype Function a b = Function { unFunction :: a -> b }
   deriving newtype (Functor, Applicative, Monad)
   deriving (HasReader tag a) via MonadReader ((->) a)
 
--- | Apply an endomorphism on @Whole a@ by using an endomorphism on @Subparts a@.
+runFunction :: (b -> Function a b) -> a -> b -> b
+runFunction f a b = unFunction (f b) a
+
+-- | A constraint synonym for the Reader, which uses the Whole type as tag.
+type Reads a m = HasReader a a m
+
+-- | Apply an endomorphism on @Whole a@ by using an endomorphism on @Component a@.
 -- which has @Parameters a@ in the context.
 endoR ::
-  IsWhole a =>
-  (forall m. HasContext a m => Subparts a -> m (Subparts a)) ->
+  Whole a =>
+  (forall m. Reads (Parameters a) m => Component a -> m (Component a)) ->
   a -> a
-endoR f w =
+endoR f a =
   let
-    p = getParameters w
-    s = getSubparts w
+    p = view parameters a
   in
-    mkWhole p (runFunction (f s) p)
+    over components (runFunction f p) a
 
 --------------------------------------------------------------------------------
 
-type CanChange a m = HasState (Tag a) (Subparts a) m
-
-newtype RState r s a = RState { runRState :: ReaderT r (State s) a }
+newtype RState r s a = RState { unRState :: ReaderT r (State s) a }
   deriving newtype (Functor, Applicative, Monad)
   deriving (HasReader tag r) via MonadReader (ReaderT r (State s))
   deriving (HasState tag s) via MonadState (ReaderT r (State s))
 
+runRState :: RState a b () -> a -> b -> b
+runRState f a b = execState (runReaderT (unRState f) a) b
+
+type Changes a m = HasState a a m
+
 -- | Apply an endomorphism on @Whole a@ by using a stateful operation on
--- @Subparts a@ which has @Parameters a@ in the context.
+-- @Component a@ which has @Parameters a@ in the context.
 endoS ::
-  IsWhole a =>
-  (forall m. (HasContext a m, CanChange a m) => m ()) ->
+  Whole a =>
+  (forall m. (Reads (Parameters a) m, Changes (Component a) m) => m ()) ->
   a -> a
-endoS f w =
+endoS f a =
   let
-    p = getParameters w
-    s = getSubparts w
+    p = view parameters a
   in
-    mkWhole p (execState (runReaderT (runRState f) p) s)
+    over components (runRState f p) a
